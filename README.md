@@ -21,4 +21,7 @@ Lsr is a minor variation of a command I've been using since the early '80s
 to organize backups, mirror projects, and check for filesystem corruption.
 Its use in administering netlib is described in ACM TOMS (1995) 21:1:89-97.
 I created it at Bell Labs when the Interdata hardware (first Unix port)
-was silently corrupting files.
+was silently corrupting files. Given recent stories about declining
+reliability of consumer SSD, it may be prudent for a few people like
+me to resume such checking.
+

@@ -28,7 +28,6 @@ import (
 	"log"
 	"math"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -62,7 +61,8 @@ func main() {
 	oldscan = bufio.NewScanner(oldlsr)
 	getOldinfo()
 
-	filepath.Walk(".", gotNewinfo)
+	filesystem := os.DirFS(".")
+	fs.WalkDir(filesystem, ".", gotNewinfo)
 
 	for !oldinfo.eof {
 		fmt.Printf("D %s\n", oldinfo.name)
@@ -120,10 +120,16 @@ func getOldinfo() {
 	}
 }
 
-func gotNewinfo(path string, info fs.FileInfo, err error) error {
+func gotNewinfo(path string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err
 	}
+
+	info, err := d.Info()
+	if err != nil {
+		return err
+	}
+
 	if !info.Mode().IsRegular() || path==".lsr" || path==".lsrTEMPORARY" {
 		return nil
 	}

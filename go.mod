@@ -1,3 +1,3 @@
 module github.com/n2vi/lsr
 
-go 1.17
+go 1.20

@@ -7,12 +7,14 @@ quoted filename, size, modtime, and sha256(contents).
 Main output goes to local file ".lsr", which is created 0600 if it doesn't exist.
 Diagnostic output goes to Stdout as lines of the form: status filename
 where status is one of
+
 	N new
 	D deleted
 	M modified (size or hash changed, and mtime advanced)
 	R reverted (size or hash changed, and mtime went backwards)
 	T touched (mtime changed but hash did not)
 	C corrupted (size or hash changed but mtime did not)
+
 or silent for files that are same as before.
 */
 package main
@@ -21,24 +23,22 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/ascii85"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"math"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 )
 
 type info struct {
-	name string // relative to "."
-	size int64
+	name  string // relative to "."
+	size  int64
 	mtime time.Time
-	sum []byte
-	eof bool
+	sum   []byte
+	eof   bool
 }
 
 var oldinfo info
@@ -59,6 +59,7 @@ func main() {
 		log.Fatal(err)
 	}
 	oldscan = bufio.NewScanner(oldlsr)
+	oldinfo.sum = make([]byte, 32)
 	getOldinfo()
 
 	filesystem := os.DirFS(".")
@@ -87,6 +88,8 @@ func main() {
 func getOldinfo() {
 	// We are unforgiving here; we wrote it so we should be able to read it.
 	var err error
+	var timefld string
+	var sumfld string
 	if oldinfo.eof {
 		return
 	}
@@ -98,25 +101,19 @@ func getOldinfo() {
 		oldinfo.eof = true
 		return
 	}
-	fld := strings.Split(oldscan.Text(), "\t")
-	if len(fld) != 4 {
-		log.Fatalf("bad input at %s", fld[0])
+	n, err := fmt.Sscanf(oldscan.Text(), "%q %d %s %s",
+		&oldinfo.name, &oldinfo.size, &timefld, &sumfld)
+	if err != nil || n != 4 {
+		log.Fatalf("%s: %d %s", oldinfo.name, n, err)
 	}
-	oldinfo.name, err = strconv.Unquote(fld[0])
+	oldinfo.mtime, err = time.Parse(time.RFC3339, timefld)
 	if err != nil {
-		log.Fatalf(".lsr %s: %s", fld[0], err)
+		log.Fatalf(".lsr %s, %s bad time format: %s", oldinfo.name, timefld, err)
 	}
-	oldinfo.size, err = strconv.ParseInt(fld[1], 10, 64)
-	if err != nil {
-		log.Fatalf(".lsr %s, %s not an int64: %s", fld[0], fld[1], err)
-	}
-	oldinfo.mtime, err = time.Parse(time.RFC3339, fld[2])
-	if err != nil {
-		log.Fatalf(".lsr %s, %s bad time format: %s", fld[0], fld[2], err)
-	}
-	oldinfo.sum, err = hex.DecodeString(fld[3])
-	if err != nil {
-		log.Fatalf(".lsr %s, %s not hex format: %s", fld[0], fld[3], err)
+	ndst, _, err := ascii85.Decode(oldinfo.sum, []byte(sumfld), true)
+	if err != nil || ndst != 32 {
+		log.Fatalf(".lsr %s, %s not ascii85 format? %d %s",
+			oldinfo.name, sumfld, ndst, err)
 	}
 }
 
@@ -130,14 +127,19 @@ func gotNewinfo(path string, d fs.DirEntry, err error) error {
 		return err
 	}
 
-	if !info.Mode().IsRegular() || path==".lsr" || path==".lsrTEMPORARY" {
+	if !info.Mode().IsRegular() || path == ".lsr" || path == ".lsrTEMPORARY" {
 		return nil
 	}
 	newsum := sum(path)
-	fmt.Fprintf(newlsr, "%q\t%d\t%s\t%0x\n",
+	b85 := make([]byte, 40)
+	ndst := ascii85.Encode(b85, newsum)
+	if ndst != 40 {
+		log.Fatalf("expected 40, got %d.  %s %0x", ndst, b85, newsum)
+	}
+	fmt.Fprintf(newlsr, "%q %d %s %s\n",
 		path, info.Size(),
 		info.ModTime().UTC().Format(time.RFC3339),
-		newsum)
+		b85)
 	for !oldinfo.eof && oldinfo.name < path {
 		fmt.Printf("D %s\n", oldinfo.name)
 		getOldinfo()

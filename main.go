@@ -44,8 +44,10 @@ type info struct {
 var oldinfo info
 var newlsr *os.File
 var oldscan *bufio.Scanner
+var relax bool
 
 func main() {
+	_, relax = os.LookupEnv("RELAX")
 	oldlsr, err := os.OpenFile(".lsr", os.O_CREATE, 0600)
 	if err != nil {
 		log.Fatal(err)
@@ -121,23 +123,29 @@ func gotNewinfo(path string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err
 	}
-
 	info, err := d.Info()
 	if err != nil {
 		return err
 	}
-
 	if !info.Mode().IsRegular() || path == ".lsr" || path == ".lsrTEMPORARY" {
 		return nil
 	}
-	newsum := sum(path)
-	b85 := make([]byte, 40)
-	ndst := ascii85.Encode(b85, newsum)
-	if ndst != 40 {
-		log.Fatalf("expected 40, got %d.  %s %0x", ndst, b85, newsum)
+	newsize := info.Size()
+	newmtime := info.ModTime()
+
+	samesize := oldinfo.size == newsize
+	sametime := math.Abs(oldinfo.mtime.Sub(newmtime).Seconds()) <= 1.
+
+	newsum := make([]byte, sha256.Size)
+	if relax && !oldinfo.eof && oldinfo.name == path && samesize && sametime {
+		newsum = oldinfo.sum // good enough for some purposes
+	} else {
+		newsum = sum(path)
 	}
+	b85 := make([]byte, 40)
+	ascii85.Encode(b85, newsum)
 	fmt.Fprintf(newlsr, "%q %d %s %s\n",
-		path, info.Size(),
+		path, newsize,
 		info.ModTime().UTC().Format(time.RFC3339),
 		b85)
 	cmp := pathCompare(oldinfo.name, path)
@@ -145,14 +153,15 @@ func gotNewinfo(path string, d fs.DirEntry, err error) error {
 		fmt.Printf("D %s\n", oldinfo.name)
 		getOldinfo()
 		cmp = pathCompare(oldinfo.name, path)
+		samesize = oldinfo.size == newsize
+		sametime = math.Abs(oldinfo.mtime.Sub(newmtime).Seconds()) <= 1.
 	}
 	if oldinfo.eof || cmp > 0 {
 		fmt.Printf("N %s\n", path)
 		return nil
 	}
 	// now oldinfo.eof = false && oldinfo.name == path
-	newmtime := info.ModTime()
-	if oldinfo.size != info.Size() || !bytes.Equal(oldinfo.sum, newsum) {
+	if !samesize || !bytes.Equal(oldinfo.sum, newsum) {
 		if oldinfo.mtime.Before(newmtime) {
 			fmt.Printf("M %s\n", path)
 		} else if oldinfo.mtime.After(newmtime) {
@@ -160,11 +169,10 @@ func gotNewinfo(path string, d fs.DirEntry, err error) error {
 		} else {
 			fmt.Printf("C %s\n", path)
 		}
-	} else {
-		if math.Abs(oldinfo.mtime.Sub(newmtime).Seconds()) > 1. {
-			fmt.Printf("T %s\n", path)
-		} // else all fields equal; file is unchanged
+	} else if !sametime {
+		fmt.Printf("T %s\n", path)
 	}
+	// else all fields equal; file is unchanged
 	getOldinfo()
 	return nil
 }

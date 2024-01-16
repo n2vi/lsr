@@ -140,11 +140,13 @@ func gotNewinfo(path string, d fs.DirEntry, err error) error {
 		path, info.Size(),
 		info.ModTime().UTC().Format(time.RFC3339),
 		b85)
-	for !oldinfo.eof && oldinfo.name < path {
+	cmp := pathCompare(oldinfo.name, path)
+	for !oldinfo.eof && cmp < 0 {
 		fmt.Printf("D %s\n", oldinfo.name)
 		getOldinfo()
+		cmp = pathCompare(oldinfo.name, path)
 	}
-	if oldinfo.eof || oldinfo.name > path {
+	if oldinfo.eof || cmp > 0 {
 		fmt.Printf("N %s\n", path)
 		return nil
 	}
@@ -179,4 +181,36 @@ func sum(path string) []byte {
 		log.Fatal(err)
 	}
 	return h.Sum(nil)
+}
+
+// Function pathCompare is almost but not quite strings.Compare.
+// The subtlety is that "a-b" sorts before "a/c" as strings, but "a/c"
+// comes first in an fs.WalkDir enumeration.
+func pathCompare(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		aa, bb := a[i], b[i]
+		if aa == '/' && bb != '/' {
+			return -1
+		}
+		if aa != '/' && bb == '/' {
+			return +1
+		}
+		if aa < bb {
+			return -1
+		}
+		if aa > bb {
+			return +1
+		}
+	}
+	if len(a) < len(b) {
+		return -1
+	}
+	if len(a) > len(b) {
+		return +1
+	}
+	return 0
 }

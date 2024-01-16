@@ -25,3 +25,8 @@ was silently corrupting files. Given recent stories about declining
 reliability of consumer SSD, it may be prudent for a few people like
 me to resume such checking.
 
+Lsr can be used to semi-automate sync of filetrees between several machines
+in a way that catches accidents before they propagate. But it is not a
+replacement for finer grain merge control as with git, nor is it particularly
+suitable for database files. Lsr ignores permission bits, so don't use it
+for a mix of public and secret files.

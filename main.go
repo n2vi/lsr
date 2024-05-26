@@ -65,7 +65,10 @@ func main() {
 	getOldinfo()
 
 	filesystem := os.DirFS(".")
-	fs.WalkDir(filesystem, ".", gotNewinfo)
+	err  = fs.WalkDir(filesystem, ".", gotNewinfo)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	for !oldinfo.eof {
 		fmt.Printf("D %s\n", oldinfo.name)
